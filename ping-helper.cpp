@@ -44,19 +44,50 @@ void interruptHandler(int signum)
 	stop=1;
 }
 
+int checkforError(struct replyPKT *rlpy_pckt, struct sockaddr_in *ping_addr){
+    int retval = 1;
+    //||  rlpy_pckt->hdr.typ == 3
+    if (rlpy_pckt->hdr.type == 3){
+       if (rlpy_pckt->hdr.code == 0)
+          printf("\n0 bytes from %s : Network unreachable", inet_ntoa(ping_addr->sin_addr));
+       else if (rlpy_pckt->hdr.code == 1)
+          printf("\n0 bytes from %s : Host unreachable", inet_ntoa(ping_addr->sin_addr));
+       else if (rlpy_pckt->hdr.code == 2)
+          printf("\n0 bytes from %s : Protocol unreachable", inet_ntoa(ping_addr->sin_addr));
+       else if (rlpy_pckt->hdr.code == 3)
+          printf("\n0 bytes from %s : Port unreachable", inet_ntoa(ping_addr->sin_addr));
+    }
+    else if (rlpy_pckt->hdr.type == 11){
+       printf("\n 0 bytes from %s : TTL Exceeded", inet_ntoa(ping_addr->sin_addr));
+    }
+    else {
+      retval = 0;
+    }
+
+    return retval;
+}
+
+
 
 // make a ping request
-void ping(struct sockaddr_in *ping_addr)
+void ping(struct sockaddr_in *ping_addr, int ttl_val, double recv_timeout)
 {
-	int msg_count=0, i, addr_len, flag=1, msg_received_count=0, ttl_val=64;
+	int msg_count=0, i, addr_len, flag=1, msg_received_count=0;
+
+  int activity, rcvFlag, errChk;
+
+  //set of socket descriptors
+  fd_set readfds;
 
 	struct icmpPKT pckt;
 	struct sockaddr_in r_addr;
 	struct timespec time_start, time_end, tfs, tfe;
+  struct replyPKT rlpy_pckt;
+
 	long double rtt_msec=0, total_msec=0;
 
   struct timeval tv_out;
-	tv_out.tv_sec = RECV_TIMEOUT;
+	tv_out.tv_sec = 1.;
 	tv_out.tv_usec = 0;
 
 	clock_gettime(CLOCK_MONOTONIC, &tfs);
@@ -65,10 +96,9 @@ void ping(struct sockaddr_in *ping_addr)
 	// set socket options at ip to TTL and value to 64,
 	// change to what you want by setting ttl_val
 	if (setsockopt(socketFd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0)
-		  error("\nSetting socket options to TTL failed! ");
-
+		  error("Setting socket options to TTL failed! \n");
 	{
-		printf("\nSocket set to TTL..\n");
+		printf("Socket set to TTL..\n");
 	}
 
 	// setting timeout of recv setting
@@ -85,55 +115,55 @@ void ping(struct sockaddr_in *ping_addr)
 
 		pckt.hdr.type = ICMP_ECHO;
 		pckt.hdr.un.echo.id = getpid();
-
-		// for ( i = 0; i < sizeof(pckt.msg)-1; i++)
-		// 	pckt.msg[i] = '0';
-
 		strcpy(pckt.msg, "ECHO");
 		pckt.hdr.un.echo.sequence = msg_count++;
 		pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
-
 
 		usleep(PING_SLEEP_RATE);
 
 		//send packet
 		clock_gettime(CLOCK_MONOTONIC, &time_start);
-		if ( sendto(socketFd, &pckt, sizeof(pckt), 0, (struct sockaddr*)ping_addr, sizeof(*ping_addr)) <= 0)
+		if (sendto(socketFd, &pckt, sizeof(pckt), 0, (struct sockaddr*)ping_addr, sizeof(*ping_addr)) <= 0)
 		{
       flag=0;
 			printf("\nPacket Transmission Failed!\n");
 		}
 
-		//receive packet
-		addr_len = sizeof(r_addr);
+    // Clear FD_Sets;
+    FD_ZERO(&readfds);
+    FD_SET(socketFd, &readfds);
 
-		if ( recvfrom(socketFd, &pckt, sizeof(pckt), 0, (struct sockaddr*)&r_addr, (socklen_t*)&addr_len) <= 0 && msg_count>1)
-		{
-			printf("\nPacket receive failed!\n");
-		}
+    activity = select(socketFd + 1 , &readfds , NULL , NULL , &tv_out);
+    if (activity == -1)
+       error("selcect () error");
+    else{
+       addr_len = sizeof(r_addr);
+       rcvFlag = recvfrom(socketFd, &rlpy_pckt, sizeof(rlpy_pckt), 0, (struct sockaddr*)&r_addr, (socklen_t*)&addr_len);
 
-		else
-		{
-			clock_gettime(CLOCK_MONOTONIC, &time_end);
+       if (rcvFlag == -1){
+         if (errno == EAGAIN)
+          error("Wait Time Exceeded");
+       }
+       else
+   		 {
+     			clock_gettime(CLOCK_MONOTONIC, &time_end);
 
-			double timeElapsed = ((double)(time_end.tv_nsec - time_start.tv_nsec))/1000000.0;
-			rtt_msec = (time_end.tv_sec- time_start.tv_sec) * 1000.0 + timeElapsed;
+     			double timeElapsed = ((double)(time_end.tv_nsec - time_start.tv_nsec))/1000000.0;
+     			rtt_msec = (time_end.tv_sec- time_start.tv_sec) * 1000.0 + timeElapsed;
 
-			// if packet was not sent, don't receive
-			if(flag)
-			{
-				if(!(pckt.hdr.type ==69 && pckt.hdr.code==0))
-				{
-					printf("Error..Packet received with ICMP type %d code %d\n", pckt.hdr.type, pckt.hdr.code);
-				}
-				else
-				{
-					printf("%d bytes from %s msg_seq=%d ttl=%d rtt = %Lf ms.\n", PACKETSIZE, inet_ntoa(ping_addr->sin_addr), msg_count, TTLVAL, rtt_msec);
+     			// if packet was not sent, don't receive
+     			if(flag)
+     			{
+            errChk = checkforError(&rlpy_pckt, ping_addr);
 
-					msg_received_count++;
-				}
-			}
-		}
+     				if(!errChk)
+     				{
+              printf("%d bytes from %s msg_seq=%d ttl=%d rtt = %Lf ms.\n", PACKETSIZE, inet_ntoa(ping_addr->sin_addr), msg_count, ttl_val, rtt_msec);
+     					msg_received_count++;
+     				}
+     			}
+     		}
+    }
 	}
 
   if (stop){
@@ -161,7 +191,6 @@ void printtIP(struct sockaddr_in *sock_addr){
     char *IPbuffer;
     IPbuffer = inet_ntoa(sock_addr->sin_addr);
     printf("Host IP: %s\n", IPbuffer);
-    printf("Port Allocated %d\n", sock_addr->sin_port);
 }
 
 

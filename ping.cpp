@@ -17,19 +17,29 @@
 
 // Socket Fd
 int socketFd;
-int TTLVAL;
-double RECV_TIMEOUT;
+
+// Defualt Values
+int TTLVAL = 255;
+double RECV_TIMEOUT = 1.; // Seconds
 
 volatile sig_atomic_t stop;
 
-
-
 int main(int argc, char *argv[]){
 
-    if (argc != 2){
+    if (argc < 2){
        error("Number of Arguments must be specified are three: \
-                  ./ping {ipaddrv4 | hostname | ipaddrv6}");
+                  ./ping {ipaddrv4 | hostname} [-t TTL (TTL < 255)]");
     }
+    else if (argc >= 4){
+      if (strcmp(argv[2], "-t") == 0)
+          TTLVAL = atoi(argv[3]);
+      else{
+         printf("%s Argument Ignored\n", argv[3]);
+      }
+    }
+
+    TTLVAL = TTLVAL & 0x00ff; // Limiting the TTL between 0-255
+
     struct sockaddr_in sock_addr = resolveDNS(argv[1]);
 
     printtIP(&sock_addr);
@@ -38,18 +48,9 @@ int main(int argc, char *argv[]){
     if(socketFd<0)
         error("Socket Error!!\n");
 
-    // Setting Global Variables
-    TTLVAL = 300;
-    RECV_TIMEOUT = 1.;
-
     stop = 0;
-
     signal(SIGINT, interruptHandler);
-    
-    ping(&sock_addr);
 
-
-
+    ping(&sock_addr, (int )TTLVAL, RECV_TIMEOUT);
     return 1;
-
 }

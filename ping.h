@@ -14,9 +14,7 @@
 #include <string.h>
 
 #define PING_PORT 8989  // PingPort Specified
-
 #define PACKETSIZE	64
-
 #define PING_SLEEP_RATE 1000000
 
 extern int socketFd;
@@ -30,10 +28,18 @@ struct icmpPKT
 	char msg[PACKETSIZE-sizeof(struct icmphdr)];
 };
 
+struct replyPKT
+{
+		struct iphdr ipHdr;
+		struct icmphdr hdr;
+		char msg[PACKETSIZE-sizeof(struct icmphdr)];
+};
+
 
 void error(const char *msg);
 void printtIP(struct sockaddr_in *sock_addr);
 struct sockaddr_in resolveDNS(char *host_name);
 unsigned short checksum(void *b, int len);
 void interruptHandler(int dummy);
-void ping(struct sockaddr_in *ping_addr);
+void ping(struct sockaddr_in *ping_addr, int ttl_val, double recv_timeout);
+int checkforError(struct replyPKT *rplyPKT, struct sockaddr_in *ping_addr);
