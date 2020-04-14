@@ -18,7 +18,8 @@
 extern int socketFd;
 extern int TTLVAL;
 extern double RECV_TIMEOUT;
-extern int pingflag;
+
+extern volatile sig_atomic_t stop;
 
 unsigned short checksum(void *b, int len)
 {
@@ -38,9 +39,9 @@ unsigned short checksum(void *b, int len)
 
 
 // Interrupt handler
-void interruptHandler(int dummy)
+void interruptHandler(int signum)
 {
-	pingflag=0;
+	stop=1;
 }
 
 
@@ -74,7 +75,7 @@ void ping(struct sockaddr_in *ping_addr)
 	setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv_out, sizeof tv_out);
 
 	// send icmp packet in an infinite loop
-	while(pingflag)
+	while(!stop)
 	{
 		// flag is whether packet was sent or not
 		flag=1;
@@ -85,10 +86,10 @@ void ping(struct sockaddr_in *ping_addr)
 		pckt.hdr.type = ICMP_ECHO;
 		pckt.hdr.un.echo.id = getpid();
 
-		for ( i = 0; i < sizeof(pckt.msg)-1; i++)
-			pckt.msg[i] = '0';
+		// for ( i = 0; i < sizeof(pckt.msg)-1; i++)
+		// 	pckt.msg[i] = '0';
 
-		pckt.msg[i] = 0;
+		strcpy(pckt.msg, "ECHO");
 		pckt.hdr.un.echo.sequence = msg_count++;
 		pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
 
@@ -134,16 +135,20 @@ void ping(struct sockaddr_in *ping_addr)
 			}
 		}
 	}
-	clock_gettime(CLOCK_MONOTONIC, &tfe);
-	double timeElapsed = ((double)(tfe.tv_nsec - tfs.tv_nsec))/1000000.0;
 
-	total_msec = (tfe.tv_sec-tfs.tv_sec)*1000.0+timeElapsed;
+  if (stop){
+    clock_gettime(CLOCK_MONOTONIC, &tfe);
+  	double timeElapsed = ((double)(tfe.tv_nsec - tfs.tv_nsec))/1000000.0;
 
-	printf("\n===%s ping statistics===\n", inet_ntoa(ping_addr->sin_addr));
-	printf("\n%d packets sent, %d packets received, %f percent packet loss. Total time: %Lf ms.\n\n",
-                                        		msg_count, msg_received_count,
-                                        		((msg_count - msg_received_count)/msg_count) * 100.0,
-                                        		total_msec);
+  	total_msec = (tfe.tv_sec-tfs.tv_sec)*1000.0+timeElapsed;
+
+  	printf("\n===%s ping statistics===\n", inet_ntoa(ping_addr->sin_addr));
+  	printf("\n%d packets sent, %d packets received, %f percent packet loss. Total time: %Lf ms.\n\n",
+                                          		msg_count, msg_received_count,
+                                          		((msg_count - msg_received_count)/msg_count) * 100.0,
+                                          		total_msec);
+  }
+
 }
 
 

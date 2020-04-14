@@ -22,7 +22,7 @@
 extern int socketFd;
 extern int TTLVAL;
 extern double RECV_TIMEOUT;
-extern int pingflag;
+extern volatile sig_atomic_t stop;
 
 struct icmpPKT
 {

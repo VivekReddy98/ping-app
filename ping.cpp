@@ -19,7 +19,9 @@
 int socketFd;
 int TTLVAL;
 double RECV_TIMEOUT;
-int pingflag;
+
+volatile sig_atomic_t stop;
+
 
 
 int main(int argc, char *argv[]){
@@ -40,12 +42,14 @@ int main(int argc, char *argv[]){
     TTLVAL = 300;
     RECV_TIMEOUT = 1.;
 
-    pingflag = 1;
-
-    ping(&sock_addr);
+    stop = 0;
 
     signal(SIGINT, interruptHandler);
     
+    ping(&sock_addr);
+
+
+
     return 1;
 
 }
